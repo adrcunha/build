@@ -17,7 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"encoding/json"
+	"context"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -42,6 +42,7 @@ type ClusterBuildTemplate struct {
 // Check that our resource implements several interfaces.
 var _ kmeta.OwnerRefable = (*ClusterBuildTemplate)(nil)
 var _ Template = (*ClusterBuildTemplate)(nil)
+var _ BuildTemplateInterface = (*ClusterBuildTemplate)(nil)
 
 // Check that ClusterBuildTemplate may be validated and defaulted.
 var _ apis.Validatable = (*ClusterBuildTemplate)(nil)
@@ -57,15 +58,6 @@ type ClusterBuildTemplateList struct {
 	Items []ClusterBuildTemplate `json:"items"`
 }
 
-// GetGeneration returns the generation number of this object.
-func (bt *ClusterBuildTemplate) GetGeneration() int64 { return bt.Spec.Generation }
-
-// SetGeneration sets the generation number of this object.
-func (bt *ClusterBuildTemplate) SetGeneration(generation int64) { bt.Spec.Generation = generation }
-
-// GetSpecJSON returns the JSON serialization of this build template's Spec.
-func (bt *ClusterBuildTemplate) GetSpecJSON() ([]byte, error) { return json.Marshal(bt.Spec) }
-
 // TemplateSpec returnes the Spec used by the template
 func (bt *ClusterBuildTemplate) TemplateSpec() BuildTemplateSpec {
 	return bt.Spec
@@ -79,3 +71,6 @@ func (bt *ClusterBuildTemplate) Copy() BuildTemplateInterface {
 func (bt *ClusterBuildTemplate) GetGroupVersionKind() schema.GroupVersionKind {
 	return SchemeGroupVersion.WithKind("ClusterBuildTemplate")
 }
+
+// SetDefaults
+func (b *ClusterBuildTemplate) SetDefaults(ctx context.Context) {}

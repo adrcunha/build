@@ -17,7 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"encoding/json"
+	"context"
 
 	"github.com/knative/pkg/apis"
 	corev1 "k8s.io/api/core/v1"
@@ -48,6 +48,7 @@ type BuildTemplate struct {
 // Check that our resource implements several interfaces.
 var _ kmeta.OwnerRefable = (*BuildTemplate)(nil)
 var _ Template = (*BuildTemplate)(nil)
+var _ BuildTemplateInterface = (*BuildTemplate)(nil)
 
 // Check that BuildTemplate may be validated and defaulted.
 var _ apis.Validatable = (*BuildTemplate)(nil)
@@ -55,12 +56,11 @@ var _ apis.Defaultable = (*BuildTemplate)(nil)
 
 // BuildTemplateSpec is the spec for a BuildTemplate.
 type BuildTemplateSpec struct {
-	// TODO: Generation does not work correctly with CRD. They are scrubbed
-	// by the APIserver (https://github.com/kubernetes/kubernetes/issues/58778)
-	// So, we add Generation here. Once that gets fixed, remove this and use
-	// ObjectMeta.Generation instead.
+	// TODO(dprotaso) Metadata.Generation should increment so we
+	// can drop this property when conversion webhooks enable us
+	// to migrate
 	// +optional
-	Generation int64 `json:"generation,omitempty"`
+	DeprecatedGeneration int64 `json:"generation,omitempty"`
 
 	// Parameters defines the parameters that can be populated in a template.
 	Parameters []ParameterSpec `json:"parameters,omitempty"`
@@ -98,15 +98,6 @@ type BuildTemplateList struct {
 	Items []BuildTemplate `json:"items"`
 }
 
-// GetGeneration returns the generation number of this object.
-func (bt *BuildTemplate) GetGeneration() int64 { return bt.Spec.Generation }
-
-// SetGeneration sets the generation number of this object.
-func (bt *BuildTemplate) SetGeneration(generation int64) { bt.Spec.Generation = generation }
-
-// GetSpecJSON returns the JSON serialization of this build template's Spec.
-func (bt *BuildTemplate) GetSpecJSON() ([]byte, error) { return json.Marshal(bt.Spec) }
-
 // TemplateSpec returnes the Spec used by the template
 func (bt *BuildTemplate) TemplateSpec() BuildTemplateSpec {
 	return bt.Spec
@@ -117,9 +108,10 @@ func (bt *BuildTemplate) Copy() BuildTemplateInterface {
 	return bt.DeepCopy()
 }
 
+// GetGroupVersionKind gives kind
 func (bt *BuildTemplate) GetGroupVersionKind() schema.GroupVersionKind {
 	return SchemeGroupVersion.WithKind("BuildTemplate")
 }
 
 // SetDefaults for build template
-func (bt *BuildTemplate) SetDefaults() {}
+func (bt *BuildTemplate) SetDefaults(ctx context.Context) {}

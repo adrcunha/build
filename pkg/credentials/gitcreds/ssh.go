@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,13 +57,13 @@ func (dc *sshGitConfig) String() string {
 func (dc *sshGitConfig) Set(value string) error {
 	parts := strings.Split(value, "=")
 	if len(parts) != 2 {
-		return fmt.Errorf("Expect entries of the form secret=url, got: %v", value)
+		return fmt.Errorf("expect entries of the form secret=url, got: %v", value)
 	}
 	secret := parts[0]
 	url := parts[1]
 
 	if _, ok := dc.entries[url]; ok {
-		return fmt.Errorf("Multiple entries for url: %v", url)
+		return fmt.Errorf("multiple entries for url: %v", url)
 	}
 
 	e, err := newSshEntry(url, secret)
@@ -85,8 +86,15 @@ func (dc *sshGitConfig) Write() error {
 	//  2. Compute its part of "~/.ssh/config"
 	//  3. Compute its part of "~/.ssh/known_hosts"
 	var configEntries []string
+	var defaultPort = "22"
 	var knownHosts []string
 	for _, k := range dc.order {
+		var host, port string
+		var err error
+		if host, port, err = net.SplitHostPort(k); err != nil {
+			host = k
+			port = defaultPort
+		}
 		v := dc.entries[k]
 		if err := v.Write(sshDir); err != nil {
 			return err
@@ -94,7 +102,8 @@ func (dc *sshGitConfig) Write() error {
 		configEntries = append(configEntries, fmt.Sprintf(`Host %s
     HostName %s
     IdentityFile %s
-`, k, k, v.path(sshDir)))
+    Port %s
+`, host, host, v.path(sshDir), port))
 
 		knownHosts = append(knownHosts, v.knownHosts)
 	}

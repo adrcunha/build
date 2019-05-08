@@ -21,9 +21,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
-
+	"github.com/google/go-cmp/cmp"
 	"github.com/knative/build/pkg/credentials"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestBasicFlagHandling(t *testing.T) {
@@ -217,6 +218,7 @@ func TestSSHFlagHandling(t *testing.T) {
 	expectedSSHConfig := fmt.Sprintf(`Host github.com
     HostName github.com
     IdentityFile %s
+    Port 22
 `, filepath.Join(os.Getenv("HOME"), ".ssh", "id_foo"))
 	if string(b) != expectedSSHConfig {
 		t.Errorf("got: %v, wanted: %v", string(b), expectedSSHConfig)
@@ -242,7 +244,7 @@ func TestSSHFlagHandling(t *testing.T) {
 	}
 }
 
-func TestSSHFlagHandlingTwice(t *testing.T) {
+func TestSSHFlagHandlingThrice(t *testing.T) {
 	credentials.VolumePath, _ = ioutil.TempDir("", "")
 	fooDir := credentials.VolumeName("foo")
 	if err := os.MkdirAll(fooDir, os.ModePerm); err != nil {
@@ -264,12 +266,23 @@ func TestSSHFlagHandlingTwice(t *testing.T) {
 	if err := ioutil.WriteFile(filepath.Join(barDir, "known_hosts"), []byte("ssh-rsa bbbb"), 0777); err != nil {
 		t.Fatalf("ioutil.WriteFile(known_hosts) = %v", err)
 	}
+	bazDir := credentials.VolumeName("baz")
+	if err := os.MkdirAll(bazDir, os.ModePerm); err != nil {
+		t.Fatalf("os.MkdirAll(%s) = %v", bazDir, err)
+	}
+	if err := ioutil.WriteFile(filepath.Join(bazDir, corev1.SSHAuthPrivateKey), []byte("derp"), 0777); err != nil {
+		t.Fatalf("ioutil.WriteFile(ssh-privatekey) = %v", err)
+	}
+	if err := ioutil.WriteFile(filepath.Join(bazDir, "known_hosts"), []byte("ssh-rsa cccc"), 0777); err != nil {
+		t.Fatalf("ioutil.WriteFile(known_hosts) = %v", err)
+	}
 
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	flags(fs)
 	err := fs.Parse([]string{
 		"-ssh-git=foo=github.com",
 		"-ssh-git=bar=gitlab.com",
+		"-ssh-git=baz=gitlab.example.com:2222",
 	})
 	if err != nil {
 		t.Fatalf("flag.CommandLine.Parse() = %v", err)
@@ -288,11 +301,18 @@ func TestSSHFlagHandlingTwice(t *testing.T) {
 	expectedSSHConfig := fmt.Sprintf(`Host github.com
     HostName github.com
     IdentityFile %s
+    Port 22
 Host gitlab.com
     HostName gitlab.com
     IdentityFile %s
+    Port 22
+Host gitlab.example.com
+    HostName gitlab.example.com
+    IdentityFile %s
+    Port 2222
 `, filepath.Join(os.Getenv("HOME"), ".ssh", "id_foo"),
-		filepath.Join(os.Getenv("HOME"), ".ssh", "id_bar"))
+		filepath.Join(os.Getenv("HOME"), ".ssh", "id_bar"),
+		filepath.Join(os.Getenv("HOME"), ".ssh", "id_baz"))
 	if string(b) != expectedSSHConfig {
 		t.Errorf("got: %v, wanted: %v", string(b), expectedSSHConfig)
 	}
@@ -302,7 +322,8 @@ Host gitlab.com
 		t.Fatalf("ioutil.ReadFile(.ssh/known_hosts) = %v", err)
 	}
 	expectedSSHKnownHosts := `ssh-rsa aaaa
-ssh-rsa bbbb`
+ssh-rsa bbbb
+ssh-rsa cccc`
 	if string(b) != expectedSSHKnownHosts {
 		t.Errorf("got: %v, wanted: %v", string(b), expectedSSHKnownHosts)
 	}
@@ -325,6 +346,16 @@ ssh-rsa bbbb`
 	expectedIDBar := `bleh`
 	if string(b) != expectedIDBar {
 		t.Errorf("got: %v, wanted: %v", string(b), expectedIDBar)
+	}
+
+	b, err = ioutil.ReadFile(filepath.Join(credentials.VolumePath, ".ssh", "id_baz"))
+	if err != nil {
+		t.Fatalf("ioutil.ReadFile(.ssh/id_baz) = %v", err)
+	}
+
+	expectedIDBaz := `derp`
+	if string(b) != expectedIDBaz {
+		t.Errorf("got: %v, wanted: %v", string(b), expectedIDBaz)
 	}
 }
 
@@ -383,6 +414,56 @@ func TestSshMalformedValues(t *testing.T) {
 		cfg := sshGitConfig{}
 		if err := cfg.Set(test); err == nil {
 			t.Errorf("Set(%v); got success, wanted error.", test)
+		}
+	}
+}
+
+func TestMatchingAnnotations(t *testing.T) {
+	tests := []struct {
+		secret   *corev1.Secret
+		wantFlag []string
+	}{{
+		secret: &corev1.Secret{
+			Type: corev1.SecretTypeBasicAuth,
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "git",
+				Annotations: map[string]string{
+					fmt.Sprintf("%s.testkeys", annotationPrefix): "basickeys",
+				},
+			},
+		},
+		wantFlag: []string{fmt.Sprintf("-%s=git=basickeys", basicAuthFlag)},
+	}, {
+		secret: &corev1.Secret{
+			Type: corev1.SecretTypeSSHAuth,
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "ssh",
+				Annotations: map[string]string{
+					fmt.Sprintf("%s.testkeys", annotationPrefix): "keys",
+				},
+			},
+		},
+		wantFlag: []string{fmt.Sprintf("-%s=ssh=keys", sshFlag)},
+	}, {
+		secret: &corev1.Secret{
+			Type: corev1.SecretTypeSSHAuth,
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "ssh",
+				Annotations: map[string]string{
+					fmt.Sprintf("%s.testkeys1", annotationPrefix): "keys1",
+					fmt.Sprintf("%s.testkeys2", annotationPrefix): "keys2",
+					fmt.Sprintf("%s.testkeys3", annotationPrefix): "keys3",
+				},
+			},
+		},
+		wantFlag: []string{fmt.Sprintf("-%s=ssh=keys1", sshFlag), fmt.Sprintf("-%s=ssh=keys2", sshFlag), fmt.Sprintf("-%s=ssh=keys3", sshFlag)},
+	}}
+
+	nb := NewBuilder()
+	for _, ts := range tests {
+		gotFlag := nb.MatchingAnnotations(ts.secret)
+		if !cmp.Equal(ts.wantFlag, gotFlag) {
+			t.Errorf("MatchingAnnotations() Mismatch of flags; wanted: %v got: %v", ts.wantFlag, gotFlag)
 		}
 	}
 }
