@@ -14,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-source $(dirname $0)/../vendor/github.com/knative/test-infra/scripts/release.sh
+# Documentation about this script and how to use it can be found
+# at https://github.com/knative/test-infra/tree/master/ci
 
-# Local generated yaml file
-readonly OUTPUT_YAML=build.yaml
+source $(dirname $0)/../vendor/github.com/knative/test-infra/scripts/release.sh
 
 function build_release() {
   # When building a versioned release, we must use .ko.yaml.release
@@ -30,8 +30,8 @@ function build_release() {
   # Build the base image for creds-init and git images.
   docker build -t "${KO_DOCKER_REPO}/github.com/knative/build/build-base" -f images/Dockerfile images/
   echo "Building build-crd"
-  ko resolve ${KO_FLAGS} -f config/ > ${OUTPUT_YAML}
-  YAMLS_TO_PUBLISH="${OUTPUT_YAML}"
+  ARTIFACTS_TO_PUBLISH="build.yaml"
+  ko resolve ${KO_FLAGS} -f config/ > ${ARTIFACTS_TO_PUBLISH}
 }
 
 main $@
